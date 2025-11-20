@@ -8,6 +8,8 @@ const zig_versions: [4][]const u8 = .{ "0.13.0", "0.14.1", "0.15.2", "0.16.0-dev
 
 const SNIPPETS_DIR_NAME = "snippets";
 
+const TMP_OUT_DIR_NAME = "tmp-out";
+
 fn eolSeparator(comptime size: comptime_int) [size]u8 {
     return @splat('-');
 }
@@ -23,6 +25,10 @@ fn getAllSnippetsPaths(allocator: std.mem.Allocator) !std.ArrayList([]const u8) 
     defer walker.deinit();
     while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
+
+        // making sure we're dealing with a zig file!
+        if (entry.path < 5 or !std.mem.eql(u8, ".zig", entry.path[entry.path.len-4..]))
+            continue;
 
         const path = try allocator.dupe(u8, entry.path);
         errdefer allocator.free(path);
@@ -84,7 +90,7 @@ pub fn main() !void {
     std.debug.print("2.2 Sorting paths by alpha order\n", .{});
     std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
 
-    // 3. Let's test the tests
+    // 3. Let's test the tests ------------------------------------------------
     std.debug.print("3. Let's test our snippets\n", .{});
     var tests_results: std.ArrayList(u64) = .empty;
     defer tests_results.deinit(allocator);
@@ -157,6 +163,48 @@ pub fn main() !void {
         }
         std.debug.print("\n", .{});
     }
+
+    // File generation --------------------------------------------------------
+    std.debug.print("5. Jenna raiding html files for each snippets\n", .{});
+    std.debug.print("5.1 Opening template.html\n", .{});
+
+    var threaded: std.Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var template_buf: [4096]u8 = undefined;
+    const template_file = try std.Io.Dir.cwd().openFile(io, "template.html", .{ .mode = .read_only });
+    defer template_file.close(io);
+    const template_reader = template_file.reader(io, &template_buf);
+
+    // TODO: AWKWARD MIX of Io and old stuff
+    // once https://github.com/ziglang/zig/issues/25738 is done, move to Io
+
+    // create new folder for files creation
+    std.debug.print("5.2 Creating temporary output directory\n", .{});
+    // first deleting it if it exists, probable cause:
+    // previous execution failed, need to clean up the mess
+    try std.fs.cwd().deleteTree(TMP_OUT_DIR_NAME);
+    const tmp_out_dir = try std.fs.cwd().makeOpenPath(io, TMP_OUT_DIR_NAME, .{});
+
+    for (snippets_paths) |path| {
+        // TODO: alright maybe be a bit careful here about the path names!
+        // especially about sperators in the path...
+        const new_filename = try std.fmt.allocPrint(allocator, "{s}.html", .{path[0 .. path.len - 4]});
+        const html_file = try tmp_out_dir.createFile(io, new_filename, .{});
+        defer html_file.close();
+        var out_buf: [4096]u8 = undefined;
+        const out_writer = html_file.writer(&out_buf);
+
+        while (template_reader.interface.streamDelimiter(&out_writer.interface, '{')) {
+
+            const next_char = template_reader.interface.peekByte();
+            if (try ) |
+        }
+
+
+    }
+    template_reader.interface.
 
     return;
     //
