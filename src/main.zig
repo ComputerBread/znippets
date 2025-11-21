@@ -172,6 +172,10 @@ pub fn main() !void {
     std.debug.print("5. Jenna raiding html files for each snippets\n", .{});
     std.debug.print("5.1 Opening template.html\n", .{});
 
+    // let's store the filenames to be able to reuse them
+    var html_filenames = FilenameList.init;
+    defer html_filenames.deinit(allocator);
+
     var threaded: std.Io.Threaded = .init(allocator);
     defer threaded.deinit();
     const io = threaded.io();
@@ -194,31 +198,15 @@ pub fn main() !void {
     for (snippets_paths.items, 0..) |path, snippet_idx| {
         // TODO: alright maybe be a bit careful here about the path names!
         // especially about sperators in the path...
-        const new_filename = try std.fmt.allocPrint(allocator, "{s}.html", .{path[0 .. path.len - 4]});
-        defer allocator.free(new_filename);
+        const new_filename = try html_filenames.allocPrintAppend(allocator, "{s}.html", .{path[0 .. path.len - 4]});
         const html_file = try tmp_out_dir.createFile(new_filename, .{});
         defer html_file.close();
         var out_buf: [4096]u8 = undefined;
         var out_writer = html_file.writer(&out_buf);
 
         const res = tests_results.items[snippet_idx];
-        // looking for "template string" looking like "{{NAME}}"
-        while (template_reader.interface.streamDelimiter(&out_writer.interface, '{')) |_| {
-            template_reader.interface.toss(1);
-            const next_char = template_reader.interface.peekByte() catch |err| switch (err) {
-                error.EndOfStream => {
-                    try out_writer.interface.writeByte('{');
-                    break;
-                },
-                else => return err,
-            };
-            if (next_char != '{') {
-                try out_writer.interface.writeByte('{');
-                continue;
-            }
-            // we've seen "{{"
-            template_reader.interface.toss(1);
-            const template_name = try template_reader.interface.takeDelimiterExclusive('}');
+
+        while (streamUntilTemplateStr(&template_reader.interface, &out_writer.interface)) |template_name| {
             if (std.mem.eql(u8, "TITLE", template_name)) {
                 try out_writer.interface.print("{s}", .{new_filename});
             } else if (std.mem.eql(u8, "WORKING_VERSIONS", template_name)) {
@@ -242,14 +230,55 @@ pub fn main() !void {
                 var code_reader = code_file.reader(io, &code_buf);
                 _ = try out_writer.interface.sendFileAll(&code_reader, .unlimited);
             }
-            template_reader.interface.toss(2);
+        } else |err| switch (err) {
+            error.EndOfStream => {},
+            else => std.debug.print("\n An error occured, while creating the {s} file: {}\n", .{ new_filename, err }),
+        }
+        try template_reader.seekTo(0);
+    }
+
+    std.debug.print("6. Jenna raiding html files for each version\n", .{});
+    std.debug.print("6.1 Opening version-template.html\n", .{});
+
+    const v_template_file = try std.Io.Dir.cwd().openFile(io, "version-template.html", .{ .mode = .read_only });
+    defer v_template_file.close(io);
+    // let's reuse the same buffer!
+    var v_template_reader = v_template_file.reader(io, &template_buf);
+    const snippet_html_file_total_count = html_filenames.list.items.len;
+    _ = snippet_html_file_total_count;
+    for (zig_versions, 0..) |version, version_idx| {
+        const new_filename = try html_filenames.allocPrintAppend(allocator, "v{s}.html", .{version});
+        const html_file = try tmp_out_dir.createFile(new_filename, .{});
+        defer html_file.close();
+        var out_buf: [4096]u8 = undefined;
+        var out_writer = html_file.writer(&out_buf);
+
+        while (streamUntilTemplateStr(&v_template_reader.interface, &out_writer.interface)) |template_str| {
+            if (std.mem.eql(u8, "VERSION", template_str)) {
+                try out_writer.interface.print("{s}", .{version});
+            } else if (std.mem.eql(u8, "WORKING_SNIPPETS", template_str)) {
+                for (tests_results.items, 0..) |res, snippet_idx| {
+                    if (res & @as(u64, 1) << @intCast(version_idx) != 0) {
+                        const snippet_html_file = html_filenames.at(snippet_idx);
+                        const snippet_name = snippets_paths.items[snippet_idx];
+                        try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ snippet_html_file, snippet_name });
+                    }
+                }
+            } else if (std.mem.eql(u8, "FAILING_SNIPPETS", template_str)) {
+                for (tests_results.items, 0..) |res, snippet_idx| {
+                    if (res & @as(u64, 1) << @intCast(version_idx) == 0) {
+                        const snippet_html_file = html_filenames.at(snippet_idx);
+                        const snippet_name = snippets_paths.items[snippet_idx];
+                        try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ snippet_html_file, snippet_name });
+                    }
+                }
+            }
         } else |err| switch (err) {
             error.EndOfStream => {},
             else => std.debug.print("\n An error occured, while creating the {s} file: {}\n", .{ new_filename, err }),
         }
         try out_writer.interface.flush();
-        try template_reader.seekTo(0);
-        std.debug.print("5.{d} {s} created\n", .{ snippet_idx + 2, new_filename });
+        try v_template_reader.seekTo(0);
     }
 
     return;
@@ -265,4 +294,66 @@ pub fn main() !void {
     // for (&processes) |*process| {
     //     _ = try process.wait();
     // }
+}
+
+const FilenameList = struct {
+    list: std.ArrayList([]const u8),
+
+    const Self = @This();
+
+    pub fn allocPrintAppend(self: *Self, gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) ![]u8 {
+        const formatted = try std.fmt.allocPrint(gpa, fmt, args);
+        try self.list.append(gpa, formatted);
+        return formatted;
+    }
+
+    pub fn at(self: Self, idx: usize) []const u8 {
+        std.debug.assert(idx < self.list.items.len);
+        return self.list.items[idx];
+    }
+
+    const init = Self{
+        .list = .empty,
+    };
+
+    pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
+        for (self.list.items) |filename| {
+            gpa.free(filename);
+        }
+        self.list.deinit(gpa);
+    }
+};
+
+const TemplatingError = std.Io.Reader.StreamError || std.Io.Reader.DelimiterError || std.Io.Writer.Error || std.Io.File.SeekError;
+
+/// reader is the template reader
+fn streamUntilTemplateStr(reader: *std.Io.Reader, writer: *std.Io.Writer) TemplatingError![]const u8 {
+    // looking for "template string" looking like "{{NAME}}"
+    while (reader.streamDelimiter(writer, '{')) |_| {
+        reader.toss(1);
+        const next_char = reader.peekByte() catch |err| switch (err) {
+            error.EndOfStream => {
+                try writer.writeByte('{');
+                break;
+            },
+            else => return err,
+        };
+        if (next_char != '{') {
+            try writer.writeByte('{');
+            continue;
+        }
+        // we've seen "{{"
+        reader.toss(1);
+        const template_str = try reader.takeDelimiterExclusive('}');
+        reader.toss(2);
+        try writer.flush();
+        return template_str;
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => return err,
+    }
+    // should this be outside the function?
+    // should this be called by caller?
+    try writer.flush();
+    return error.EndOfStream;
 }

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>znippets</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    margin: 0;
+    padding: 20px;
+    font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+    background: #121212;
+    color: #ccc;
+  }
+
+  .container {
+      max-width: 900px;
+      margin: auto;
+      box-sizing: border-box;
+  }
+
+  .menu {
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #666;
+      font-size: 1.1rem;
+  }
+
+  h1, h2 {
+      font-weight: 600;
+      margin: 20px 0 10px;
+  }
+
+  .versions {
+      margin: 10px 0 20px;
+      line-height: 1.6;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.95rem;
+  }
+
+  .good {
+      color: #00ff00;
+  }
+
+  .bad {
+      color: #ff0000;
+  }
+
+  .code-container {
+      position: relative;
+      margin-top: 10px;
+  }
+
+  .copy-btn {
+      position: absolute;
+      top: -45px;
+      right: 0;
+      padding: 6px 14px;
+      border-radius: 10px;
+      border: 2px solid #aaaaaa;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: 0.2s;
+  }
+
+  .copy-btn:active {
+      transform: scale(0.96);
+  }
+
+  .pre-code-box {
+      color: #ccc;
+      background: #222;
+      font-size: 0.9rem;
+      padding: 0.5em;
+  }
+
+  /* code { */
+  /*   border: unset; */
+  /*   overflow: auto; */
+  /*   font-family: monospace; */
+  /* } */
+
+  .title {
+    text-decoration: underline;
+  }
+
+  .menu > a {
+    text-decoration: none;
+    color: #e0e0e0;
+  }
+  .menu > a:hover {
+    color: grey;
+  }
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="menu"><a href="index.html">Index</a></div>
+
+  <h1 class="title">{{VERSION}}</h1>
+
+  <div class="versions">
+    <div class="good">Working snippets:</div>
+    <div>{{WORKING_SNIPPETS}}</div>
+    <br>
+    <div class="bad">Failing snippets:</div>
+    <div>{{FAILING_SNIPPETS}}</div>
+  </div>
+
+</div>
+</body>
+</html>
