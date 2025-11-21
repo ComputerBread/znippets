@@ -95,7 +95,7 @@ pub fn main() !void {
     std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
 
     // 3. Let's test the tests ------------------------------------------------
-    std.debug.print("3. Let's test our snippets\n", .{});
+    std.debug.print("3. Let's test our snippets {s}\n", .{eolSeparator(80 - 27)});
     var tests_results: std.ArrayList(u64) = .empty;
     defer tests_results.deinit(allocator);
     try tests_results.appendNTimes(allocator, 0, snippets_paths.items.len);
@@ -149,7 +149,7 @@ pub fn main() !void {
         }
     }
 
-    std.debug.print("4. Reporting results\n", .{});
+    std.debug.print("4. Reporting results {s}\n", .{eolSeparator(80 - 21)});
     for (snippets_paths.items, 0..) |path, snippet_idx| {
         std.debug.print("4.{d} {s}\n", .{ snippet_idx, path });
         const res = tests_results.items[snippet_idx];
@@ -169,7 +169,7 @@ pub fn main() !void {
     }
 
     // File generation --------------------------------------------------------
-    std.debug.print("5. Jenna raiding html files for each snippets\n", .{});
+    std.debug.print("5. Jenna raiding html files for each snippets {s}\n", .{eolSeparator(80 - 46)});
     std.debug.print("5.1 Opening template.html\n", .{});
 
     // let's store the filenames to be able to reuse them
@@ -237,7 +237,7 @@ pub fn main() !void {
         try template_reader.seekTo(0);
     }
 
-    std.debug.print("6. Jenna raiding html files for each version\n", .{});
+    std.debug.print("6. Jenna raiding html files for each version {s}\n", .{eolSeparator(80 - 45)});
     std.debug.print("6.1 Opening version-template.html\n", .{});
 
     const v_template_file = try std.Io.Dir.cwd().openFile(io, "version-template.html", .{ .mode = .read_only });
@@ -245,7 +245,6 @@ pub fn main() !void {
     // let's reuse the same buffer!
     var v_template_reader = v_template_file.reader(io, &template_buf);
     const snippet_html_file_total_count = html_filenames.list.items.len;
-    _ = snippet_html_file_total_count;
     for (zig_versions, 0..) |version, version_idx| {
         const new_filename = try html_filenames.allocPrintAppend(allocator, "v{s}.html", .{version});
         const html_file = try tmp_out_dir.createFile(new_filename, .{});
@@ -281,6 +280,37 @@ pub fn main() !void {
         try v_template_reader.seekTo(0);
     }
 
+    std.debug.print("7. Jenna raiding index.html {s}\n", .{eolSeparator(80 - 28)});
+
+    const index_template_file = try std.Io.Dir.cwd().openFile(io, "index-template.html", .{ .mode = .read_only });
+    defer index_template_file.close(io);
+    // let's reuse the same buffer!
+    var index_template_reader = index_template_file.reader(io, &template_buf);
+
+    const index_html = try tmp_out_dir.createFile("index.html", .{});
+    defer index_html.close();
+    var out_buf: [4096]u8 = undefined;
+    var out_writer = index_html.writer(&out_buf);
+    while (streamUntilTemplateStr(&index_template_reader.interface, &out_writer.interface)) |template_str| {
+        if (std.mem.eql(u8, "SNIPPETS", template_str)) {
+            for (0..snippet_html_file_total_count) |snippet_idx| {
+                const snippet_html_file = html_filenames.at(snippet_idx);
+                const snippet_name = snippets_paths.items[snippet_idx];
+                try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ snippet_html_file, snippet_name });
+            }
+        } else if (std.mem.eql(u8, "VERSIONS", template_str)) {
+            for (snippet_html_file_total_count.., zig_versions) |idx, version_name| {
+                const version_html_filename = html_filenames.at(idx);
+                try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ version_html_filename, version_name });
+            }
+        }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => std.debug.print("\n An error occured, while creating the index.html file: {}\n", .{err}),
+    }
+    try out_writer.interface.flush();
+    // {{VERSIONS}}
+    // {{SNIPPETS}}
     return;
     //
     // var processes: [zig_versions.len]std.process.Child = undefined;
