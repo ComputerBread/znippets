@@ -1,12 +1,14 @@
 const std = @import("std");
 const is_cooking = @import("builtin").mode == .Debug;
 const builtin = @import("builtin");
+const DataStore = @import("DataStore.zig");
 
 // written under 0.16.0-dev.1326+2e6f7d36b
 
 const seperator = eolSeparator(80);
 
-const zig_versions: [4][]const u8 = .{ "0.13.0", "0.14.1", "0.15.2", "0.16.0-dev.1326+2e6f7d36b" };
+// we are not going to test all versions of zig, so let's define the oldest one
+const OLDEST_ZIG_VERSION_INCL = "0.13.0";
 
 const SNIPPETS_DIR_NAME = "snippets";
 
@@ -73,10 +75,14 @@ pub fn main() !void {
         _ = debug_allocator.deinit();
     };
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     std.debug.print("ZNIPPETS\n{s}\n", .{seperator});
 
-    // 1. Testing that zigup exists -------------------------------------------
-    std.debug.print("1. Testing zigup {s}\n", .{eolSeparator(80 - 17)});
+    // 0. Testing that zigup exists -------------------------------------------
+    std.debug.print("0. Testing zigup {s}\n", .{eolSeparator(80 - 17)});
     var zigup_existence_proc = std.process.Child.init(
         &.{ "sh", "-c", "command -v zigup" },
         gpa,
@@ -87,7 +93,7 @@ pub fn main() !void {
         @panic("Checking the existence of zigup failed");
     };
     if (zigup_test_existence_res.Exited == 0) {
-        std.debug.print("1.1 zigup was found. Proceeding...\n", .{});
+        std.debug.print("0.1 zigup was found. Proceeding...\n", .{});
     } else {
         std.debug.print(
             \\1.1 zigup was NOT found. \n
@@ -98,25 +104,87 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
+    // 1. Get the versions
+    std.debug.print("1. Acquiring the Zig versions {s}\n", .{eolSeparator(80 - 30)});
+    std.debug.print("1.1 Reading VERSIONS file (if it exists)\n", .{});
+    const zig_versions = try DataStore.getVersions(arena, io);
+    // all old snippets have already been tested with zig_versions[0..new_version_idx]
+    // new_version_idx correspond to the idx of the first version that needs to test all snippets!
+    const new_version_idx = zig_versions.items.len;
+    // TODO: fetch new zig versions
+
     // 2. Get list of snippets ------------------------------------------------
-    std.debug.print("2. Listing all snippets {s}\n", .{eolSeparator(80 - 24)});
-    std.debug.print("2.1 Searching for snippets inside {s} directory\n", .{SNIPPETS_DIR_NAME});
-    var snippets_paths = try getAllSnippetsPaths(gpa);
-    defer freeSnippetsPath(gpa, &snippets_paths);
+    std.debug.print("2. Getting all snippets {s}\n", .{eolSeparator(80 - 24)});
+    std.debug.print("2.1 Fetching OLD snippets and results from SNIPPETS file\n", .{});
+    var snippets_paths, var tests_results = try DataStore.getSnippets(arena, io);
     std.debug.print("    {d} snippets found.\n", .{snippets_paths.items.len});
 
+    std.debug.print("2.2.1 Searching for snippets inside {s} directory\n", .{SNIPPETS_DIR_NAME});
+    var snippets_paths_local = try getAllSnippetsPaths(gpa);
+    std.debug.print("      {d} snippets found.\n", .{snippets_paths_local.items.len});
     // 2.1 unstable sort
-    std.debug.print("2.2 Sorting paths by alpha order\n", .{});
-    std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
+    std.debug.print("2.2.2 Sorting paths by alpha order\n", .{});
+    std.sort.pdq([]const u8, snippets_paths_local.items, {}, stringLessThan);
+
+    std.debug.print("2.3 Merging OLD and NEW snippets\n", .{});
+    const old_len = snippets_paths.items.len;
+    const new_len = snippets_paths_local.items.len;
+    if (old_len > new_len) {
+        // I don't want to think about deletion for now!
+        // If you want to delete a snippet, just delete it and the corresponding line
+        @panic(
+            \\ SNIPPETS files contains more snippets than the number of actual snippets
+            \\ If a snippet was deleted, please delete the corresponding line in SNIPPETS
+            \\ If some other bug, delete the SNIPPETS info file and retest the whole thing
+        );
+    } else if (old_len < new_len) {
+        // we have 2 sorted lists, we compare each list, if a new snippet is spotted,
+        // we put it at the end of the "old" list
+        var old_idx: usize = 0;
+        var new_idx: usize = 0;
+        while (old_idx < old_len) : (new_idx += 1) {
+            if (!std.mem.eql(u8, snippets_paths.items[old_idx], snippets_paths_local.items[new_idx])) {
+                const new_snip = try std.mem.Allocator.dupe(arena, u8, snippets_paths_local.items[new_idx]);
+                try snippets_paths.append(arena, new_snip);
+                std.debug.print("    New snippet: {s}\n", .{new_snip});
+                continue;
+            }
+            old_idx += 1;
+        }
+        // let's not forget to add any remaining new snippet
+        while (new_idx < new_len) : (new_idx += 1) {
+            const new_snip = try std.mem.Allocator.dupe(arena, u8, snippets_paths_local.items[new_idx]);
+            try snippets_paths.append(arena, new_snip);
+            std.debug.print("    New snippet: {s}\n", .{new_snip});
+        }
+        try tests_results.appendNTimes(arena, 0, new_len - old_len);
+    } else { // same number of snippet
+        // what if I delete a snippet and add a new one?
+        // [NO.](https://www.youtube.com/watch?v=qQrvoDzzLfk)
+        // don't do that, the file should be updated, if you delete a file
+        // you delete the line, otherwise this is going to be a disaster
+        //
+        // pfft, this is not very robust, you didn't think about that didn't you?!
+        // well let's keep going and assume we don't delete files! why would we
+        // in the first place!
+
+        // no new version
+        if (new_version_idx == zig_versions.items.len) {
+            std.debug.print("[END] Nothing new, exiting early\n", .{});
+            freeSnippetsPath(gpa, &snippets_paths_local);
+            return;
+        }
+    }
+    // we can list the (new) local list, we don't need it anymore!
+    freeSnippetsPath(gpa, &snippets_paths_local);
 
     // 3. Let's test the tests ------------------------------------------------
     std.debug.print("3. Let's test our snippets {s}\n", .{eolSeparator(80 - 27)});
-    var tests_results: std.ArrayList(u64) = .empty;
-    try tests_results.appendNTimes(arena, 0, snippets_paths.items.len);
+    // var tests_results: std.ArrayList(u64) = .empty;
+    // try tests_results.appendNTimes(arena, 0, snippets_paths.items.len);
 
     std.debug.print("3.1 Running the tests\n", .{});
-    for (zig_versions, 0..) |version_name, version_idx| {
-        //
+    for (zig_versions.items, 0..) |version_name, version_idx| {
         std.debug.print("3.1.{d} Testing version {s}\n", .{ version_idx + 1, version_name });
 
         var zigup_process = std.process.Child.init(&.{ "zigup", version_name }, gpa);
@@ -132,26 +200,33 @@ pub fn main() !void {
             else => std.debug.print("Something went wrong with zigup\n", .{}),
         }
 
+        // So, here we don't need to tests the OLD snippets (i.e. the "old_len"
+        // first snippets of the snippets_paths array) for the `new_version_idx`
+        // first versions!
+        const starting_idx = if (version_idx < new_version_idx) old_len else 0;
+        std.debug.print("old_len: {d}, starting_idx: {d}, version_idx: {d}, new_version_idx {d}\n", .{ old_len, starting_idx, version_idx, new_version_idx });
         var processes: std.ArrayList(std.process.Child) = .empty;
         defer processes.deinit(gpa);
-        for (snippets_paths.items, 0..) |path, snippet_idx| {
+        for (snippets_paths.items[starting_idx..], 0..) |path, proc_idx| {
+            std.debug.print("{d} ", .{proc_idx});
+            std.debug.print("{s}\n", .{path});
             const snip_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ SNIPPETS_DIR_NAME, path });
             defer gpa.free(snip_path);
             try processes.append(
                 gpa,
                 std.process.Child.init(&.{ "zig", "test", snip_path }, gpa),
             );
-            processes.items[snippet_idx].stdout_behavior = .Ignore;
-            processes.items[snippet_idx].stderr_behavior = .Ignore;
-            try processes.items[snippet_idx].spawn();
+            processes.items[proc_idx].stdout_behavior = .Ignore;
+            processes.items[proc_idx].stderr_behavior = .Ignore;
+            try processes.items[proc_idx].spawn();
         }
-        for (processes.items, 0..) |*process, snip_idx| {
+        for (processes.items, 0..) |*process, proc_idx| {
             const term: std.process.Child.Term = try process.wait();
             var failed = true;
             switch (term) {
                 .Exited => |exit_code| {
                     if (exit_code == 0) {
-                        tests_results.items[snip_idx] |= @as(u64, 1) << @intCast(version_idx);
+                        tests_results.items[proc_idx + starting_idx] |= @as(u64, 1) << @intCast(version_idx);
                         failed = false;
                     }
                 },
@@ -168,13 +243,13 @@ pub fn main() !void {
         std.debug.print("4.{d} {s}\n", .{ snippet_idx, path });
         const res = tests_results.items[snippet_idx];
         std.debug.print("    Success: ", .{});
-        for (zig_versions, 0..) |version_name, version_idx| {
+        for (zig_versions.items, 0..) |version_name, version_idx| {
             if (res & @as(u64, 1) << @intCast(version_idx) != 0) {
                 std.debug.print("{s} ", .{version_name});
             }
         }
         std.debug.print("\n    Failure: ", .{});
-        for (zig_versions, 0..) |version_name, version_idx| {
+        for (zig_versions.items, 0..) |version_name, version_idx| {
             if (res & @as(u64, 1) << @intCast(version_idx) == 0) {
                 std.debug.print("{s} ", .{version_name});
             }
@@ -182,16 +257,21 @@ pub fn main() !void {
         std.debug.print("\n", .{});
     }
 
+    std.debug.print("5. Saving results and versions in files! {s}\n", .{eolSeparator(80 - 41)});
+    // 5.1 unstable sort
+    std.debug.print("5.1 Sorting paths by alpha order\n", .{});
+    std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
+    std.debug.print("5.2 Saving snippets and results\n", .{});
+    try DataStore.saveSnippetsAndResults(&snippets_paths, &tests_results);
+
+    // TODO: save versions!
+
     // File generation --------------------------------------------------------
-    std.debug.print("5. Jenna raiding html files for each snippets {s}\n", .{eolSeparator(80 - 46)});
-    std.debug.print("5.1 Opening template.html\n", .{});
+    std.debug.print("6. Jenna raiding html files for each snippets {s}\n", .{eolSeparator(80 - 46)});
+    std.debug.print("6.1 Opening template.html\n", .{});
 
     // let's store the filenames to be able to reuse them
     var html_filenames = FilenameList.init;
-
-    var threaded: std.Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
 
     var template_buf: [4096]u8 = undefined;
     const template_file = try std.Io.Dir.cwd().openFile(io, "template.html", .{ .mode = .read_only });
@@ -202,7 +282,7 @@ pub fn main() !void {
     // once https://github.com/ziglang/zig/issues/25738 is done, move to Io
 
     // create new folder for files creation
-    std.debug.print("5.2 Creating temporary output directory\n", .{});
+    std.debug.print("6.2 Creating temporary output directory\n", .{});
     // first deleting it if it exists, probable cause:
     // previous execution failed, need to clean up the mess
     try std.fs.cwd().deleteTree(TMP_OUT_DIR_NAME);
@@ -223,13 +303,13 @@ pub fn main() !void {
             if (std.mem.eql(u8, "TITLE", template_name)) {
                 try out_writer.interface.print("{s}", .{path});
             } else if (std.mem.eql(u8, "WORKING_VERSIONS", template_name)) {
-                for (zig_versions, 0..) |version_name, version_idx| {
+                for (zig_versions.items, 0..) |version_name, version_idx| {
                     if (res & @as(u64, 1) << @intCast(version_idx) != 0) {
                         try out_writer.interface.print("{s} ", .{version_name});
                     }
                 }
             } else if (std.mem.eql(u8, "FAILING_VERSIONS", template_name)) {
-                for (zig_versions, 0..) |version_name, version_idx| {
+                for (zig_versions.items, 0..) |version_name, version_idx| {
                     if (res & @as(u64, 1) << @intCast(version_idx) == 0) {
                         try out_writer.interface.print("{s} ", .{version_name});
                     }
@@ -250,15 +330,15 @@ pub fn main() !void {
         try template_reader.seekTo(0);
     }
 
-    std.debug.print("6. Jenna raiding html files for each version {s}\n", .{eolSeparator(80 - 45)});
-    std.debug.print("6.1 Opening version-template.html\n", .{});
+    std.debug.print("7. Jenna raiding html files for each version {s}\n", .{eolSeparator(80 - 45)});
+    std.debug.print("7.1 Opening version-template.html\n", .{});
 
     const v_template_file = try std.Io.Dir.cwd().openFile(io, "version-template.html", .{ .mode = .read_only });
     defer v_template_file.close(io);
     // let's reuse the same buffer!
     var v_template_reader = v_template_file.reader(io, &template_buf);
     const snippet_html_file_total_count = html_filenames.list.items.len;
-    for (zig_versions, 0..) |version, version_idx| {
+    for (zig_versions.items, 0..) |version, version_idx| {
         const new_filename = try html_filenames.allocPrintAppend(arena, "v{s}.html", .{version});
         const html_file = try tmp_out_dir.createFile(new_filename, .{});
         defer html_file.close();
@@ -293,7 +373,7 @@ pub fn main() !void {
         try v_template_reader.seekTo(0);
     }
 
-    std.debug.print("7. Jenna raiding index.html {s}\n", .{eolSeparator(80 - 28)});
+    std.debug.print("8. Jenna raiding index.html {s}\n", .{eolSeparator(80 - 28)});
 
     const index_template_file = try std.Io.Dir.cwd().openFile(io, "index-template.html", .{ .mode = .read_only });
     defer index_template_file.close(io);
@@ -312,7 +392,7 @@ pub fn main() !void {
                 try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ snippet_html_file, snippet_name });
             }
         } else if (std.mem.eql(u8, "VERSIONS", template_str)) {
-            for (snippet_html_file_total_count.., zig_versions) |idx, version_name| {
+            for (snippet_html_file_total_count.., zig_versions.items) |idx, version_name| {
                 const version_html_filename = html_filenames.at(idx);
                 try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ version_html_filename, version_name });
             }
