@@ -56,6 +56,12 @@ fn stringLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
     return std.ascii.orderIgnoreCase(lhs, rhs).compare(.lt);
 }
 
+inline fn assert(ok: bool, message: []const u8) void {
+    if (!ok) {
+        @panic(message);
+    }
+}
+
 pub fn main() !void {
 
     // 2? allocators
@@ -107,11 +113,121 @@ pub fn main() !void {
     // 1. Get the versions
     std.debug.print("1. Acquiring the Zig versions {s}\n", .{eolSeparator(80 - 30)});
     std.debug.print("1.1 Reading VERSIONS file (if it exists)\n", .{});
-    const zig_versions = try DataStore.getVersions(arena, io);
+    var zig_versions = try DataStore.getVersions(arena, io);
+    // versions are sorted from oldest to newest, last line = master
     // all old snippets have already been tested with zig_versions[0..new_version_idx]
     // new_version_idx correspond to the idx of the first version that needs to test all snippets!
-    const new_version_idx = zig_versions.items.len;
-    // TODO: fetch new zig versions
+    var new_version_idx = zig_versions.items.len;
+
+    std.debug.print("1.2 Looking for new available versions\n", .{});
+    // let's fetch all existing versions and add the newest one!
+    // If there's a new master (dev) version, then it replaces the existing one
+    // If there's a new release it's added to the list too
+    // all versions are sorted newest first
+    const all_versions = ver_blk: {
+        if (is_debug) {
+            std.debug.print("USING STUB\n", .{});
+            break :ver_blk try @import("./version.zig").fetchZigVersions(gpa, arena, io);
+        } else {
+            break :ver_blk try fetchZigVersions(gpa, arena, io); // could catch error and continue
+        }
+    };
+    assert(all_versions.items.len != 0, "No version was fetched remotely, that's not normally!");
+    // make your life easier by having oldest first, like zig_versions
+    // it's easier to store the tests' results that way
+    // (it's not that it's hard, but I don't really want to change anything right meow)
+    std.mem.reverse([]const u8, all_versions.items);
+
+    // TODO: NOW 25 nov 18:51
+    // - finir version below
+    // TODO:
+    // - try to run it
+    // - clean things up
+    //  - move the stub function somewhere
+    //  - put relevant comments where needed..
+    //  - organize thoughts/summarize in "readme"
+    // - fix problem with tests results!
+    // - do a bunch of tests:
+    //  - emtpy versions file, only 1 version in file ...
+
+    if (zig_versions.items.len == 0) {
+        std.debug.print("DEBUG zig_versions empty\n", .{});
+        // so VERSIONS file is empty
+        // need to fill it with all_versions starting with OLDEST_ZIG_VERSION_INCL
+        // INFO: OLDEST_ZIG_VERSION_INCL could become a (CLI) argument!
+
+        var starting_idx: usize = 0;
+        for (all_versions.items) |ver| {
+            if (std.mem.eql(u8, OLDEST_ZIG_VERSION_INCL, ver)) {
+                break;
+            }
+            starting_idx += 1;
+        }
+        // empty file + no matching version? really?
+        assert(starting_idx < all_versions.items.len, "VERSIONS file empty and couldn't find OLDEST_ZIG_VERSION_INCL");
+
+        try zig_versions.appendSlice(arena, all_versions.items[starting_idx..]);
+
+        // otherwise, if not empty, we assume a previous normal run that filled VERSIONS
+        // so last element should be the master branch!
+    } else if (zig_versions.items.len == 1) {
+        std.debug.print("DEBUG zig_version 1 element\n", .{});
+        // only one version in this file
+        // two cases:
+        // - it's a master/dev version which means we may have no match
+        // - it's a release and we can find it
+        // - offbyoneerror: some garbage in the file => assume it's a master version
+        var starting_idx: usize = 0;
+        for (all_versions.items) |ver| {
+            starting_idx += 1;
+            if (std.mem.eql(u8, zig_versions.items[0], ver)) {
+                break;
+            }
+        }
+        if (starting_idx > all_versions.items.len) {
+            std.debug.print(
+                \\No matching version was found!
+                \\Assuming that you are looking for an old master (dev) version!
+                \\We do not do that here! Only the freshest master is at the menu!
+                \\So, that's what you will get
+            , .{});
+            arena.free(zig_versions.pop().?);
+            new_version_idx -= 1;
+            zig_versions.appendAssumeCapacity(all_versions.items[all_versions.items.len]);
+        } else {
+            if (starting_idx != all_versions.items.len) {
+                new_version_idx -= 1;
+            }
+            // here starting_idx can be == to all_versions.items.len and it's fine!
+            // it just means that the only element of zig_versions is the latest master!
+            try zig_versions.appendSlice(arena, all_versions.items[starting_idx..]);
+        }
+    } else if (!std.mem.eql(u8, zig_versions.items[zig_versions.items.len - 1], all_versions.items[all_versions.items.len - 1])) {
+        // TODO: ^^^ create a function like areMasterVersionsMatching (easier to read + give intent)
+        //
+        // if masters are different there is at least one new version to test
+        // what if there's a new release but not a new master, would that be possible?
+        std.debug.print("DEBUG zig_versions master not matching local master\n", .{});
+        arena.free(zig_versions.pop().?); // pop old master, freeing probably does nothing here
+        new_version_idx -= 1;
+        var i: usize = 1;
+        // search for the last (newest) corresponding version
+        while (!std.mem.eql(u8, zig_versions.items[zig_versions.items.len - 1], all_versions.items[all_versions.items.len - 1 - i])) {
+            i += 1;
+        }
+        const starting_idx = all_versions.items.len - i;
+        try zig_versions.appendSlice(arena, all_versions.items[starting_idx..]);
+    }
+    // else: masters are matching
+    // WARN: assume there cannot be a new release if no new master,
+    // should be a pretty safe assumption!
+
+    std.debug.print("1.? Printing the versions to test\n", .{});
+    for (zig_versions.items) |ver| {
+        std.debug.print("{s}\n", .{ver});
+    }
+
+    // TODO: free all_versions
 
     // 2. Get list of snippets ------------------------------------------------
     std.debug.print("2. Getting all snippets {s}\n", .{eolSeparator(80 - 24)});
@@ -478,4 +594,57 @@ fn streamUntilTemplateStr(reader: *std.Io.Reader, writer: *std.Io.Writer) Templa
     // should this be called by caller?
     try writer.flush();
     return error.EndOfStream;
+}
+
+/// Fetch list of existing zig version from https://ziglang.org/download/index.json,
+/// parse the json file and returns an arraylist.
+/// WARN: Assumption: versions are sorted from newest to oldest in the json file;
+///
+/// arena is used to store the arraylist and the strings!
+fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
+    var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
+    defer http_client.deinit();
+
+    var res_body = std.Io.Writer.Allocating.init(gpa);
+    defer res_body.deinit();
+
+    var response = try http_client.fetch(.{
+        .method = .GET,
+        .location = .{ .url = "https://ziglang.org/download/index.json" },
+        .response_writer = &res_body.writer,
+    });
+    if (response.status != .ok) {
+        return error.FetchingError;
+    }
+    std.debug.print("{s}\n", .{res_body.written()});
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, res_body.written(), .{});
+    defer parsed.deinit();
+
+    var versions: std.ArrayList([]const u8) = .empty;
+
+    if (parsed.value == .object) {
+        var it = parsed.value.object.iterator();
+        while (it.next()) |entry| {
+            // Each entry is a release (e.g., "master", "0.15.2", etc.)
+            if (entry.value_ptr.* == .object) {
+                if (entry.value_ptr.object.get("version")) |version_value| {
+                    if (version_value == .string) {
+                        const version = try arena.dupe(u8, version_value.string);
+                        try versions.append(arena, version);
+                    }
+                } else {
+                    const version = try arena.dupe(u8, entry.key_ptr.*);
+                    try versions.append(arena, version);
+                }
+            }
+        }
+    }
+
+    // std.debug.print("Found {} versions:\n", .{versions.items.len});
+    // for (versions.items) |version| {
+    //     std.debug.print("  - {s}\n", .{version});
+    // }
+
+    return versions;
 }

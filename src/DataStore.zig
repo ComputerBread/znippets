@@ -2,6 +2,8 @@ const std = @import("std");
 
 /// Read the local "VERSIONS" file and return the list of versions that have
 /// already been used to test old snippets!
+/// One version per line
+/// Must be sorted from OLDEST to NEWEST, master is on the last line!
 pub fn getVersions(arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
 
     // this will create and open the VERSIONS file if it doesn't exist!
