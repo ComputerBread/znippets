@@ -138,14 +138,10 @@ pub fn main() !void {
     // (it's not that it's hard, but I don't really want to change anything right meow)
     std.mem.reverse([]const u8, all_versions.items);
 
-    // TODO: NOW 25 nov 18:51
-    // - finir version below
     // TODO:
-    // - try to run it
     // - clean things up
-    //  - move the stub function somewhere
-    //  - put relevant comments where needed..
     //  - organize thoughts/summarize in "readme"
+    //    (look at the comments & code)
     // - fix problem with tests results!
     // - do a bunch of tests:
     //  - emtpy versions file, only 1 version in file ...
@@ -374,10 +370,16 @@ pub fn main() !void {
     }
 
     std.debug.print("5. Saving results and versions in files! {s}\n", .{eolSeparator(80 - 41)});
+    std.debug.print("5.1 Sorting paths by alpha order and results\n", .{});
     // 5.1 unstable sort
-    std.debug.print("5.1 Sorting paths by alpha order\n", .{});
-    std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
+    // std.sort.pdq([]const u8, snippets_paths.items, {}, stringLessThan);
+    // ^^^^^ pfft I forgot I need to sort the results as well
+    // how did I not think about that? [am I stupid?](https://tenor.com/Xjyl.gif)
+    sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWantToGetSmthWorkingNow(&snippets_paths, &tests_results);
     std.debug.print("5.2 Saving snippets and results\n", .{});
+    for (tests_results.items) |res| {
+        std.debug.print("res: {d}\n", .{res});
+    }
     try DataStore.saveSnippetsAndResults(&snippets_paths, &tests_results);
 
     // TODO: save versions!
@@ -647,4 +649,22 @@ fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io
     // }
 
     return versions;
+}
+
+fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWantToGetSmthWorkingNow(snip: *std.ArrayList([]const u8), res: *std.ArrayList(u64)) void {
+    const Context = struct {
+        snip: [][]const u8,
+        res: []u64,
+        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+            return std.ascii.orderIgnoreCase(ctx.snip[lhs], ctx.snip[rhs]).compare(.lt);
+        }
+
+        pub fn swap(ctx: @This(), lhs: usize, rhs: usize) void {
+            std.mem.swap([]const u8, &ctx.snip[lhs], &ctx.snip[rhs]);
+            std.mem.swap(u64, &ctx.res[lhs], &ctx.res[rhs]);
+        }
+    };
+
+    const ctx: Context = .{ .snip = snip.items, .res = res.items };
+    std.sort.pdqContext(0, res.items.len, ctx);
 }
