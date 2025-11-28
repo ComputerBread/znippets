@@ -65,6 +65,11 @@ didn't even tested inside a subdirectory
 To works this project needs:
 
 - [zigup](https://github.com/marler8997/zigup)
+- [minhtml](https://github.com/wilsonzlin/minify-html/tree/master/minhtml)
+    - CLI for [minify-html](https://github.com/wilsonzlin/minify-html)
+    - <https://crates.io/crates/minhtml>
+    - install using: `cargo install minhtml`
+    - tested using minhtml 0.18.1
 
 ## how does it work?
 
@@ -114,7 +119,7 @@ corresponding the latest build!
     - one html file per snippet with the working and failing versions
     - one html file per version with the working and failing snippets
     - index.html with links to snippets and versions html files
-8. TODO: minify generated files
+8. minify generated files
 
 ### saving data for faster execution
 

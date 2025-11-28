@@ -142,7 +142,6 @@ pub fn main() !void {
     // - clean things up
     //  - organize thoughts/summarize in "readme"
     //    (look at the comments & code)
-    // - fix problem with tests results!
     // - do a bunch of tests:
     //  - emtpy versions file, only 1 version in file ...
 
@@ -167,6 +166,9 @@ pub fn main() !void {
         // otherwise, if not empty, we assume a previous normal run that filled VERSIONS
         // so last element should be the master branch!
     } else if (zig_versions.items.len == 1) {
+        // this is fishy, I don't like it
+        // 🤔 I should probably delete this and panic instead
+
         std.debug.print("DEBUG zig_version 1 element\n", .{});
         // only one version in this file
         // two cases:
@@ -189,7 +191,11 @@ pub fn main() !void {
             , .{});
             arena.free(zig_versions.pop().?);
             new_version_idx -= 1;
-            zig_versions.appendAssumeCapacity(all_versions.items[all_versions.items.len]);
+            // let's add the last "stable" release and the master
+            // if we only add the master, we will be stuck in a never ending
+            // cycle of replacing the master branch!
+            try zig_versions.append(arena, all_versions.items[all_versions.items.len - 2]);
+            try zig_versions.append(arena, all_versions.items[all_versions.items.len - 1]);
         } else {
             if (starting_idx != all_versions.items.len) {
                 new_version_idx -= 1;
@@ -218,7 +224,7 @@ pub fn main() !void {
     // WARN: assume there cannot be a new release if no new master,
     // should be a pretty safe assumption!
 
-    std.debug.print("1.? Printing the versions to test\n", .{});
+    std.debug.print("1.3 Printing the versions to test\n", .{});
     for (zig_versions.items) |ver| {
         std.debug.print("{s}\n", .{ver});
     }
@@ -382,7 +388,7 @@ pub fn main() !void {
     }
     try DataStore.saveSnippetsAndResults(&snippets_paths, &tests_results);
 
-    // TODO: save versions!
+    try DataStore.saveVersions(&zig_versions);
 
     // File generation --------------------------------------------------------
     std.debug.print("6. Jenna raiding html files for each snippets {s}\n", .{eolSeparator(80 - 46)});
@@ -520,8 +526,10 @@ pub fn main() !void {
         else => std.debug.print("\n An error occured, while creating the index.html file: {}\n", .{err}),
     }
     try out_writer.interface.flush();
-    // {{VERSIONS}}
-    // {{SNIPPETS}}
+
+    std.debug.print("9. Minify html files {s}\n", .{eolSeparator(80 - 21)});
+    minifyGeneratedFiles(gpa);
+
     return;
     //
     // var processes: [zig_versions.len]std.process.Child = undefined;
@@ -667,4 +675,27 @@ fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWa
 
     const ctx: Context = .{ .snip = snip.items, .res = res.items };
     std.sort.pdqContext(0, res.items.len, ctx);
+}
+
+fn minifyGeneratedFiles(gpa: std.mem.Allocator) void {
+    const command = std.fmt.allocPrint(gpa, "minhtml {s}/* --minify-css --minify-js --keep-closing-tags", .{TMP_OUT_DIR_NAME}) catch |err| {
+        std.debug.print("Minifying failed: couldn't generate the command, {}\n", .{err});
+        return;
+    };
+    defer gpa.free(command);
+
+    var minify_proc = std.process.Child.init(
+        &.{ "sh", "-c", command },
+        gpa,
+    );
+    minify_proc.stdout_behavior = .Ignore;
+    const minify_res = minify_proc.spawnAndWait() catch |err| {
+        std.debug.print("Minizing attempt failed: {}\n", .{err});
+        return;
+    };
+    if (minify_res.Exited == 0) {
+        std.debug.print("Minimization done!\n", .{});
+    } else {
+        std.debug.print("Something went wrong with minimization!\n", .{});
+    }
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const VERSIONS_FILENAME = "VERSIONS";
 /// Read the local "VERSIONS" file and return the list of versions that have
 /// already been used to test old snippets!
 /// One version per line
@@ -8,7 +9,7 @@ pub fn getVersions(arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const 
 
     // this will create and open the VERSIONS file if it doesn't exist!
     // otherwise it will just open it!
-    const file = try std.Io.Dir.cwd().createFile(io, "VERSIONS", .{
+    const file = try std.Io.Dir.cwd().createFile(io, VERSIONS_FILENAME, .{
         .read = true,
         .truncate = false,
     });
@@ -27,6 +28,19 @@ pub fn getVersions(arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const 
     }
 
     return versions;
+}
+
+pub fn saveVersions(versions: *std.ArrayList([]const u8)) !void {
+    const file = try std.fs.cwd().createFile(VERSIONS_FILENAME, .{
+        .truncate = true,
+    });
+    defer file.close();
+    var buf: [4096]u8 = undefined;
+    var writer = file.writer(&buf);
+    for (versions.items) |version| {
+        try writer.interface.print("{s}\n", .{version});
+    }
+    try writer.interface.flush();
 }
 
 const SNIPPETS_INFO_FILENAME = "SNIPPETS";
