@@ -2,6 +2,8 @@ const std = @import("std");
 const is_cooking = @import("builtin").mode == .Debug;
 const builtin = @import("builtin");
 const DataStore = @import("DataStore.zig");
+const versions_utils = @import("versions.zig");
+const file_generation = @import("file_generation.zig");
 
 // written under 0.16.0-dev.1326+2e6f7d36b
 
@@ -65,7 +67,6 @@ inline fn assert(ok: bool, message: []const u8) void {
 pub fn main() !void {
 
     // 2? allocators
-    // put arena before debug allocator to avoid some false positive leak
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_allocator.deinit(); // delete this? let OS clean it at the end?
     const arena = arena_allocator.allocator();
@@ -127,9 +128,9 @@ pub fn main() !void {
     const all_versions = ver_blk: {
         if (is_debug) {
             std.debug.print("USING STUB\n", .{});
-            break :ver_blk try @import("./version.zig").fetchZigVersions(gpa, arena, io);
+            break :ver_blk try versions_utils.fetchZigVersionsStub(gpa, arena, io);
         } else {
-            break :ver_blk try fetchZigVersions(gpa, arena, io); // could catch error and continue
+            break :ver_blk try versions_utils.fetchZigVersions(gpa, arena, io); // could catch error and continue
         }
     };
     assert(all_versions.items.len != 0, "No version was fetched remotely, that's not normally!");
@@ -139,12 +140,6 @@ pub fn main() !void {
     std.mem.reverse([]const u8, all_versions.items);
 
     var previousMaster: ?[]const u8 = null;
-    // TODO:
-    // - clean things up
-    //  - organize thoughts/summarize in "readme"
-    //    (look at the comments & code)
-    // - do a bunch of tests:
-    //  - emtpy versions file, only 1 version in file ...
 
     if (zig_versions.items.len == 0) {
         std.debug.print("DEBUG zig_versions empty\n", .{});
@@ -167,47 +162,11 @@ pub fn main() !void {
         // otherwise, if not empty, we assume a previous normal run that filled VERSIONS
         // so last element should be the master branch!
     } else if (zig_versions.items.len == 1) {
-        // this is fishy, I don't like it
-        // 🤔 I should probably delete this and panic instead
-
-        std.debug.print("DEBUG zig_version 1 element\n", .{});
-        // only one version in this file
-        // two cases:
-        // - it's a master/dev version which means we may have no match
-        // - it's a release and we can find it
-        // - offbyoneerror: some garbage in the file => assume it's a master version
-        var starting_idx: usize = 0;
-        for (all_versions.items) |ver| {
-            starting_idx += 1;
-            if (std.mem.eql(u8, zig_versions.items[0], ver)) {
-                break;
-            }
-        }
-        if (starting_idx > all_versions.items.len) {
-            std.debug.print(
-                \\No matching version was found!
-                \\Assuming that you are looking for an old master (dev) version!
-                \\We do not do that here! Only the freshest master is at the menu!
-                \\So, that's what you will get
-            , .{});
-            arena.free(zig_versions.pop().?);
-            new_version_idx -= 1;
-            // let's add the last "stable" release and the master
-            // if we only add the master, we will be stuck in a never ending
-            // cycle of replacing the master branch!
-            try zig_versions.append(arena, all_versions.items[all_versions.items.len - 2]);
-            try zig_versions.append(arena, all_versions.items[all_versions.items.len - 1]);
-        } else {
-            if (starting_idx != all_versions.items.len) {
-                new_version_idx -= 1;
-            }
-            // here starting_idx can be == to all_versions.items.len and it's fine!
-            // it just means that the only element of zig_versions is the latest master!
-            try zig_versions.appendSlice(arena, all_versions.items[starting_idx..]);
-        }
-    } else if (!std.mem.eql(u8, zig_versions.items[zig_versions.items.len - 1], all_versions.items[all_versions.items.len - 1])) {
-        // TODO: ^^^ create a function like areMasterVersionsMatching (easier to read + give intent)
-        //
+        @panic(
+            \\Only one line was found in the VERSIONS file.
+            \\This file should contain 0 or at least 2 versions: a stable one and a master (dev)!
+        );
+    } else if (!versions_utils.areMasterVersionsTheSame(&zig_versions, &all_versions)) {
         // if masters are different there is at least one new version to test
         // what if there's a new release but not a new master, would that be possible?
         std.debug.print("DEBUG zig_versions master not matching local master\n", .{});
@@ -422,7 +381,7 @@ pub fn main() !void {
 
         const res = tests_results.items[snippet_idx];
 
-        while (streamUntilTemplateStr(&template_reader.interface, &out_writer.interface)) |template_name| {
+        while (file_generation.streamUntilTemplateStr(&template_reader.interface, &out_writer.interface)) |template_name| {
             if (std.mem.eql(u8, "TITLE", template_name)) {
                 try out_writer.interface.print("{s}", .{path});
             } else if (std.mem.eql(u8, "WORKING_VERSIONS", template_name)) {
@@ -468,7 +427,7 @@ pub fn main() !void {
         var out_buf: [4096]u8 = undefined;
         var out_writer = html_file.writer(&out_buf);
 
-        while (streamUntilTemplateStr(&v_template_reader.interface, &out_writer.interface)) |template_str| {
+        while (file_generation.streamUntilTemplateStr(&v_template_reader.interface, &out_writer.interface)) |template_str| {
             if (std.mem.eql(u8, "VERSION", template_str)) {
                 try out_writer.interface.print("{s}", .{version});
             } else if (std.mem.eql(u8, "WORKING_SNIPPETS", template_str)) {
@@ -507,7 +466,7 @@ pub fn main() !void {
     defer index_html.close();
     var out_buf: [4096]u8 = undefined;
     var out_writer = index_html.writer(&out_buf);
-    while (streamUntilTemplateStr(&index_template_reader.interface, &out_writer.interface)) |template_str| {
+    while (file_generation.streamUntilTemplateStr(&index_template_reader.interface, &out_writer.interface)) |template_str| {
         if (std.mem.eql(u8, "SNIPPETS", template_str)) {
             for (0..snippet_html_file_total_count) |snippet_idx| {
                 const snippet_html_file = html_filenames.at(snippet_idx);
@@ -520,7 +479,7 @@ pub fn main() !void {
                 try out_writer.interface.print("<a href=\"{s}\">{s}</a><br>", .{ version_html_filename, version_name });
             }
         } else if (std.mem.eql(u8, "FOOTER", template_str)) {
-            writeDateTime(io, &out_writer.interface);
+            file_generation.writeDateTime(io, &out_writer.interface);
         }
     } else |err| switch (err) {
         error.EndOfStream => {},
@@ -537,14 +496,13 @@ pub fn main() !void {
     try std.fs.Dir.copyFile(std.fs.cwd(), "html-templates/style.css", std.fs.cwd(), "docs/style.css", .{});
 
     std.debug.print("10. Minify html files {s}\n", .{eolSeparator(80 - 21)});
-    minifyGeneratedFiles(gpa, "docs/");
+    file_generation.minifyGeneratedFiles(gpa, "docs/");
 
     // deleting previous installed master version to minimize storage
     if (previousMaster) |prevMaster| {
         std.debug.print("10. deleting previous master {s}\n", .{eolSeparator(80 - 29)});
         var zigup_process = std.process.Child.init(&.{ "zigup", "clean", prevMaster }, gpa);
-        // TODO: uncomment below
-        // zigup_process.stderr_behavior = .Ignore;
+        zigup_process.stderr_behavior = .Ignore;
         const zigup_term = try zigup_process.spawnAndWait();
         switch (zigup_term) {
             .Exited => |exit_code| {
@@ -557,18 +515,6 @@ pub fn main() !void {
     }
 
     return;
-    //
-    // var processes: [zig_versions.len]std.process.Child = undefined;
-    // for (zig_versions, 0..) |version, idx| {
-    //     var buf: [100]u8 = undefined;
-    //     const msg = try std.fmt.bufPrint(&buf, "'Hello world, version: {s}'", .{version});
-    //     processes[idx] = std.process.Child.init(&.{ "echo", msg }, gpa);
-    //     try processes[idx].spawn();
-    // }
-    //
-    // for (&processes) |*process| {
-    //     _ = try process.wait();
-    // }
 }
 
 const FilenameList = struct {
@@ -592,99 +538,6 @@ const FilenameList = struct {
     };
 };
 
-const TemplatingError = std.Io.Reader.StreamError || std.Io.Reader.DelimiterError || std.Io.Writer.Error || std.Io.File.SeekError;
-
-/// Function used to read a HTML template, with some template string like
-/// `{{TITLE}}`. Takes the reader of a template, and writes all the content of
-/// the template until it finds a `{{template_string}}`. Once it finds a `{{`,
-/// it extracts the string and returns it, so that caller can replace it with
-/// whatever...
-/// Returns `error.EndOfStream` once it's done
-/// Should this function actually flush the writer?
-fn streamUntilTemplateStr(reader: *std.Io.Reader, writer: *std.Io.Writer) TemplatingError![]const u8 {
-    // looking for "template string" looking like "{{NAME}}"
-    while (reader.streamDelimiter(writer, '{')) |_| {
-        reader.toss(1);
-        const next_char = reader.peekByte() catch |err| switch (err) {
-            error.EndOfStream => {
-                try writer.writeByte('{');
-                break;
-            },
-            else => return err,
-        };
-        if (next_char != '{') {
-            try writer.writeByte('{');
-            continue;
-        }
-        // we've seen "{{"
-        reader.toss(1);
-        const template_str = try reader.takeDelimiterExclusive('}');
-        reader.toss(2);
-        try writer.flush();
-        return template_str;
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => return err,
-    }
-    // should this be outside the function?
-    // should this be called by caller?
-    try writer.flush();
-    return error.EndOfStream;
-}
-
-/// Fetch list of existing zig version from https://ziglang.org/download/index.json,
-/// parse the json file and returns an arraylist.
-/// WARN: Assumption: versions are sorted from newest to oldest in the json file;
-///
-/// arena is used to store the arraylist and the strings!
-fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
-    var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer http_client.deinit();
-
-    var res_body = std.Io.Writer.Allocating.init(gpa);
-    defer res_body.deinit();
-
-    var response = try http_client.fetch(.{
-        .method = .GET,
-        .location = .{ .url = "https://ziglang.org/download/index.json" },
-        .response_writer = &res_body.writer,
-    });
-    if (response.status != .ok) {
-        return error.FetchingError;
-    }
-    std.debug.print("{s}\n", .{res_body.written()});
-
-    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, res_body.written(), .{});
-    defer parsed.deinit();
-
-    var versions: std.ArrayList([]const u8) = .empty;
-
-    if (parsed.value == .object) {
-        var it = parsed.value.object.iterator();
-        while (it.next()) |entry| {
-            // Each entry is a release (e.g., "master", "0.15.2", etc.)
-            if (entry.value_ptr.* == .object) {
-                if (entry.value_ptr.object.get("version")) |version_value| {
-                    if (version_value == .string) {
-                        const version = try arena.dupe(u8, version_value.string);
-                        try versions.append(arena, version);
-                    }
-                } else {
-                    const version = try arena.dupe(u8, entry.key_ptr.*);
-                    try versions.append(arena, version);
-                }
-            }
-        }
-    }
-
-    // std.debug.print("Found {} versions:\n", .{versions.items.len});
-    // for (versions.items) |version| {
-    //     std.debug.print("  - {s}\n", .{version});
-    // }
-
-    return versions;
-}
-
 fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWantToGetSmthWorkingNow(snip: *std.ArrayList([]const u8), res: *std.ArrayList(u64)) void {
     const Context = struct {
         snip: [][]const u8,
@@ -701,52 +554,4 @@ fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWa
 
     const ctx: Context = .{ .snip = snip.items, .res = res.items };
     std.sort.pdqContext(0, res.items.len, ctx);
-}
-
-fn minifyGeneratedFiles(gpa: std.mem.Allocator, dir_path: []const u8) void {
-    const command = std.fmt.allocPrint(gpa, "minhtml {s}/* --minify-css --minify-js --keep-closing-tags", .{dir_path}) catch |err| {
-        std.debug.print("Minifying failed: couldn't generate the command, {}\n", .{err});
-        return;
-    };
-    defer gpa.free(command);
-
-    var minify_proc = std.process.Child.init(
-        &.{ "sh", "-c", command },
-        gpa,
-    );
-    minify_proc.stdout_behavior = .Ignore;
-    const minify_res = minify_proc.spawnAndWait() catch |err| {
-        std.debug.print("Minizing attempt failed: {}\n", .{err});
-        return;
-    };
-    if (minify_res.Exited == 0) {
-        std.debug.print("Minimization done!\n", .{});
-    } else {
-        std.debug.print("Something went wrong with minimization!\n", .{});
-    }
-}
-
-pub fn writeDateTime(io: std.Io, writer: *std.Io.Writer) void {
-    const clock = std.Io.Clock.real;
-    const timestamp = std.Io.Clock.now(clock, io) catch {
-        std.debug.print("Couldn't acquire the current timestamp\n", .{});
-        return;
-    };
-
-    const secs: u64 = @intCast(timestamp.toSeconds());
-    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = secs };
-    const day_seconds = epoch_seconds.getDaySeconds();
-    const epoch_day = epoch_seconds.getEpochDay();
-    const year_day = epoch_day.calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
-    const year = year_day.year;
-    const month = month_day.month.numeric();
-    const day = month_day.day_index + 1;
-    const hour = day_seconds.getHoursIntoDay();
-    const minutes = day_seconds.getMinutesIntoHour();
-    const seconds = day_seconds.getSecondsIntoMinute();
-
-    writer.print("{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z\n", .{ year, month, day, hour, minutes, seconds }) catch {
-        std.debug.print("couldn't write DateTime inside writer\n", .{});
-    };
 }

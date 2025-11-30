@@ -151,20 +151,9 @@ We have 2 files:
     - it is expected that the last line is the "MASTER version"
     - if empty, it will be filled with all the versions since `OLDEST_ZIG_VERSION_INCL`
       (0.13.0) (this could become an argument to pass when running...)
-    - if only one line, it is assumed that this line correspond to a version
-        - 🤔 I should probably delete this and panic instead
-        - this version will searched in the complete list of zig versions (fetched remotely)
-        - if found, this version and any newer version will be used to test the snippets
-            - this is the only case that make sense
-              would be a nice way to initialize it
-        - if not found, assume that it's an old master (or some garbage) and will be discarded,
-          newest master and newest "stable" release is added to avoid a never
-          ending cycle of replacing masters!
-        - ⚠️ this is mostly a weird edge case, avoid it!
-          MAKE SURE THE SNIPPETS FILE IS EMPTY, cause you're going to get garbage
-          (damn this is kinda annoying to make robust)
-          (I just want to publish ts really quick)
-        - ⚠️ just don't modify this file, and you should be good to go
+    - if only one line
+        - will panic
+        - edge case too annoying to deal with for now (too many possible outcomes)
     - if last line (master version) isn't the latest master, then last line is
       discarded, we'll use/append any new version (including latest master),
       since the previous stable release in this file (the second last line)
