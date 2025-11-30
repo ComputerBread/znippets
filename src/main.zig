@@ -130,6 +130,7 @@ pub fn main() !void {
             std.debug.print("USING STUB\n", .{});
             break :ver_blk try versions_utils.fetchZigVersionsStub(gpa, arena, io);
         } else {
+            std.debug.print("Fetching zig versions\n", .{});
             break :ver_blk try versions_utils.fetchZigVersions(gpa, arena, io); // could catch error and continue
         }
     };
@@ -500,7 +501,7 @@ pub fn main() !void {
 
     // deleting previous installed master version to minimize storage
     if (previousMaster) |prevMaster| {
-        std.debug.print("10. deleting previous master {s}\n", .{eolSeparator(80 - 29)});
+        std.debug.print("11. deleting previous master {s}\n", .{eolSeparator(80 - 29)});
         var zigup_process = std.process.Child.init(&.{ "zigup", "clean", prevMaster }, gpa);
         zigup_process.stderr_behavior = .Ignore;
         const zigup_term = try zigup_process.spawnAndWait();
@@ -512,6 +513,11 @@ pub fn main() !void {
             },
             else => std.debug.print("Something went wrong with zigup clean\n", .{}),
         }
+    }
+
+    std.debug.print("12. commit and push {s}\n", .{eolSeparator(80 - 20)});
+    if (!is_debug) {
+        gitCommitPush(gpa);
     }
 
     return;
@@ -554,4 +560,19 @@ fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWa
 
     const ctx: Context = .{ .snip = snip.items, .res = res.items };
     std.sort.pdqContext(0, res.items.len, ctx);
+}
+
+fn gitCommitPush(gpa: std.mem.Allocator) void {
+    var git_proc = std.process.Child.init(
+        &.{ "sh", "-c", "git add SNIPPETS VERSIONS docs/ && git commit -m 'automatic push' && git push" },
+        gpa,
+    );
+    // git_proc.stdout_behavior = .Ignore;
+    const git_res = git_proc.spawnAndWait() catch |err| {
+        std.debug.print("git commit and push failed: {}\n", .{err});
+        return;
+    };
+    if (git_res.Exited == 0) {
+        std.debug.print("0.1 zigup was found. Proceeding...\n", .{});
+    }
 }

@@ -9,7 +9,7 @@ pub fn areMasterVersionsTheSame(local_v: *const std.ArrayList([]const u8), remot
 /// WARN: Assumption: versions are sorted from newest to oldest in the json file;
 ///
 /// arena is used to store the arraylist and the strings!
-fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
+pub fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
     var http_client: std.http.Client = .{ .allocator = gpa, .io = io };
     defer http_client.deinit();
 
