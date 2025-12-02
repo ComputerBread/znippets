@@ -213,3 +213,22 @@ want in the `Writer`
 Syntax highlighting done by prism.js
 
 
+## Automatic "build"
+
+I set up a VPS to build and run this script every day.
+Really basic set up:
+
+- create a user using `adduser znippets`
+- generate ssh key, add it to github
+- inside /home/znippets, clone this repo
+- install zigup and minhtml
+- install sponge (apt install moreutils)
+- set up cron job with `crontab -e`:
+
+```
+PATH=/home/znippets:/home/znippets/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+
+0 4 * * * /home/znippets/znippets/automatic-run.sh >> /home/znippets/logs.log 2>&1  && tail -n 1000 /home/znippets/logs.log | sponge /home/znippets/logs.log
+```
+
+look at the really basic logs, just keep last 1000 lines!
