@@ -42,7 +42,7 @@ pub fn streamUntilTemplateStr(reader: *std.Io.Reader, writer: *std.Io.Writer) Te
 
 pub fn minifyGeneratedFiles(gpa: std.mem.Allocator, dir_path: []const u8) void {
     const command = std.fmt.allocPrint(gpa, "minhtml {s}/* --minify-css --minify-js --keep-closing-tags", .{dir_path}) catch |err| {
-        std.log.defaultLog(.err, .default, "Minifying failed: couldn't generate the command, {}", .{err});
+        std.log.err("Minifying failed: couldn't generate the command, {}", .{err});
         return;
     };
     defer gpa.free(command);
@@ -53,20 +53,20 @@ pub fn minifyGeneratedFiles(gpa: std.mem.Allocator, dir_path: []const u8) void {
     );
     minify_proc.stdout_behavior = .Ignore;
     const minify_res = minify_proc.spawnAndWait() catch |err| {
-        std.log.defaultLog(.err, .default, "Minizing attempt failed: {}", .{err});
+        std.log.err("Minizing attempt failed: {}", .{err});
         return;
     };
     if (minify_res.Exited == 0) {
-        std.log.defaultLog(.debug, .default, "Minimization done!", .{});
+        std.log.debug("Minimization done!", .{});
     } else {
-        std.log.defaultLog(.err, .default, "Something went wrong with minimization!", .{});
+        std.log.err("Something went wrong with minimization!", .{});
     }
 }
 
 pub fn writeDateTime(io: std.Io, writer: *std.Io.Writer) void {
     const clock = std.Io.Clock.real;
     const timestamp = std.Io.Clock.now(clock, io) catch {
-        std.log.defaultLog(.debug, .default, "Couldn't acquire the current timestamp", .{});
+        std.log.debug("Couldn't acquire the current timestamp", .{});
         return;
     };
 
@@ -84,6 +84,6 @@ pub fn writeDateTime(io: std.Io, writer: *std.Io.Writer) void {
     const seconds = day_seconds.getSecondsIntoMinute();
 
     writer.print("{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z\n", .{ year, month, day, hour, minutes, seconds }) catch {
-        std.log.defaultLog(.err, .default, "couldn't write DateTime inside writer\n", .{});
+        std.log.err("couldn't write DateTime inside writer\n", .{});
     };
 }

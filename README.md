@@ -2,13 +2,15 @@
 
 state: proof of concept
 
-Motivation: Zig is a great language with huge potential, however it is not
-stable yet. Writing documentation, articles, or books about it, is doomed to
-become out of date, keeping track of what needs to be updated can be challenging!
-
 Introducing znippets, a collection of (hopefully useful) zig snippets that are
 tested across multiple zig versions, so that anyone can quickly know if a snippet
 works for a specific zig version.
+
+<https://computerbread.github.io/znippets/index.html>
+
+Motivation: Zig is a great language with huge potential, however it is not
+stable yet. Writing documentation, articles, or books about it, is doomed to
+become out of date, keeping track of what needs to be updated can be challenging!
 
 goal:
 - have a collection of useful code snippets
@@ -56,13 +58,11 @@ didn't even tested inside a subdirectory
   (TODO: then in the datafile, we put a "replacedBy <name_of_new_snippet>")
 
 
-
-
 ## requirements
 
 (tested on linux only)
 
-To works this project needs:
+To work this project needs:
 
 - [zigup](https://github.com/marler8997/zigup)
 - [minhtml](https://github.com/wilsonzlin/minify-html/tree/master/minhtml)
