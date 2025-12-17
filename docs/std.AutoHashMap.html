@@ -1,0 +1,46 @@
+<!doctype html><html lang=en><meta charset=UTF-8><title>znippets</title><meta content="width=device-width,initial-scale=1.0" name=viewport><link integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin href=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css referrerpolicy=no-referrer rel=stylesheet><link href=style.css rel=stylesheet></head><body><div class=container><div class=menu><a href=index.html>Index</a></div><h1 class=title>std.AutoHashMap.zig</h1><div class=versions><div class=good>Working version(s):</div><div><a class=version-link href=v0.13.0.html>0.13.0</a><a class=version-link href=v0.14.1.html>0.14.1</a><a class=version-link href=v0.15.2.html>0.15.2</a><a class=version-link href=v0.16.0-dev.1484+d0ba6642b.html>0.16.0-dev.1484+d0ba6642b</a></div><br><div class=bad>Failing version(s):</div><div></div></div><h2>Code</h2><div class="code-container language-zig"><button class=copy-btn>Copy</button><pre class=pre-code-box><code id=codeBox>// from https://zig.guide/standard-library/hashmaps
+// license https://github.com/sobeston/zig.guide?tab=MIT-1-ov-file#readme
+
+const std = @import("std");
+const test_allocator = std.testing.allocator;
+
+test "hashing" {
+    const Point = struct { x: i32, y: i32 };
+
+    var map = std.AutoHashMap(u32, Point).init(
+        test_allocator,
+    );
+    defer map.deinit();
+
+    try map.put(1525, .{ .x = 1, .y = -4 });
+    try map.put(1550, .{ .x = 2, .y = -3 });
+    try map.put(1575, .{ .x = 3, .y = -2 });
+    try map.put(1600, .{ .x = 4, .y = -1 });
+
+    try std.testing.expect(map.count() == 4);
+
+    var sum = Point{ .x = 0, .y = 0 };
+    var iterator = map.iterator();
+
+    while (iterator.next()) |entry| {
+        sum.x += entry.value_ptr.x;
+        sum.y += entry.value_ptr.y;
+    }
+
+    try std.testing.expect(sum.x == 10);
+    try std.testing.expect(sum.y == -10);
+}
+
+test "fetchPut" {
+    var map = std.AutoHashMap(u8, f32).init(
+        test_allocator,
+    );
+    defer map.deinit();
+
+    try map.put(255, 10);
+    const old = try map.fetchPut(255, 100);
+
+    try std.testing.expect(old.?.value == 10);
+    try std.testing.expect(map.get(255).? == 100);
+}
+</code></pre></div></div><script>document.querySelector(`.copy-btn`).addEventListener(`click`,()=>{let code=document.getElementById(`codeBox`).innerText;navigator.clipboard.writeText(code).then(()=>{let btn=document.querySelector(`.copy-btn`);btn.textContent=`Copied!`,setTimeout(()=>btn.textContent=`Copy`,1200)})});</script><script integrity="sha512-HiD3V4nv8fcjtouznjT9TqDNDm1EXngV331YGbfVGeKUoH+OLkRTCMzA34ecjlgSQZpdHZupdSrqHY+Hz3l6uQ==" crossorigin referrerpolicy=no-referrer src=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js></script><script integrity="sha512-5fbERmwxGa5G54RKyUzDxnZsVJl8Xf6gNwpti3AyMULmQL5tsLAoBgRor/Vo2sfTJiuAhicobxDWpef9SmXIkA==" crossorigin referrerpolicy=no-referrer src=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-zig.min.js></script></body></html>

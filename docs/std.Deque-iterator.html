@@ -1,0 +1,17 @@
+<!doctype html><html lang=en><meta charset=UTF-8><title>znippets</title><meta content="width=device-width,initial-scale=1.0" name=viewport><link integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin href=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css referrerpolicy=no-referrer rel=stylesheet><link href=style.css rel=stylesheet></head><body><div class=container><div class=menu><a href=index.html>Index</a></div><h1 class=title>std.Deque/iterator.zig</h1><div class=versions><div class=good>Working version(s):</div><div><a class=version-link href=v0.16.0-dev.1484+d0ba6642b.html>0.16.0-dev.1484+d0ba6642b</a></div><br><div class=bad>Failing version(s):</div><div><a class=version-link href=v0.13.0.html>0.13.0</a><a class=version-link href=v0.14.1.html>0.14.1</a><a class=version-link href=v0.15.2.html>0.15.2</a></div></div><h2>Code</h2><div class="code-container language-zig"><button class=copy-btn>Copy</button><pre class=pre-code-box><code id=codeBox>const std = @import("std");
+
+test "iterator" {
+    var buffer: [4]u32 = undefined;
+    var q: std.Deque(u32) = .initBuffer(&buffer);
+    q.pushBackAssumeCapacity(2);
+    q.pushBackAssumeCapacity(3);
+    q.pushFrontAssumeCapacity(1);
+    q.pushFrontAssumeCapacity(0);
+
+    var it = q.iterator();
+    var i: u32 = 0;
+    while (it.next()) |elem| : (i += 1) {
+        try std.testing.expectEqual(i, elem);
+    }
+}
+</code></pre></div></div><script>document.querySelector(`.copy-btn`).addEventListener(`click`,()=>{let code=document.getElementById(`codeBox`).innerText;navigator.clipboard.writeText(code).then(()=>{let btn=document.querySelector(`.copy-btn`);btn.textContent=`Copied!`,setTimeout(()=>btn.textContent=`Copy`,1200)})});</script><script integrity="sha512-HiD3V4nv8fcjtouznjT9TqDNDm1EXngV331YGbfVGeKUoH+OLkRTCMzA34ecjlgSQZpdHZupdSrqHY+Hz3l6uQ==" crossorigin referrerpolicy=no-referrer src=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js></script><script integrity="sha512-5fbERmwxGa5G54RKyUzDxnZsVJl8Xf6gNwpti3AyMULmQL5tsLAoBgRor/Vo2sfTJiuAhicobxDWpef9SmXIkA==" crossorigin referrerpolicy=no-referrer src=https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/components/prism-zig.min.js></script></body></html>

@@ -532,7 +532,13 @@ const FilenameList = struct {
     const Self = @This();
 
     pub fn allocPrintAppend(self: *Self, arena: std.mem.Allocator, comptime fmt: []const u8, args: anytype) ![]u8 {
-        const formatted = try std.fmt.allocPrint(arena, fmt, args);
+        var formatted = try std.fmt.allocPrint(arena, fmt, args);
+        // checking for directory separator char
+        for (0..formatted.len) |i| {
+            if (formatted[i] == std.fs.path.sep) {
+                formatted[i] = '-';
+            }
+        }
         try self.list.append(arena, formatted);
         return formatted;
     }
