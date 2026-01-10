@@ -306,6 +306,11 @@ pub fn main() !void {
                     if (exit_code == 0) {
                         tests_results.items[proc_idx + starting_idx] |= @as(u64, 1) << @intCast(version_idx);
                         failed = false;
+                    } else {
+                        // this line is necessary to reset the test when a new master branch is available
+                        // other option would be to do the reset when fetching the new versions, but tests_results is not available at that time
+                        // TODO: switch fetching versions and getting tests_results, and reset the master results, so we can remove this line...
+                        tests_results.items[proc_idx + starting_idx] &= ~(@as(u64, 1) << @intCast(version_idx));
                     }
                 },
                 else => {
