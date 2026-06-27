@@ -5,7 +5,7 @@ const DataStore = @import("DataStore.zig");
 const versions_utils = @import("versions.zig");
 const file_generation = @import("file_generation.zig");
 
-// written under 0.16.0-dev.1326+2e6f7d36b
+// written under 0.16.0-dev.1326+2e6f7d36b, upgraded to 0.16.0
 
 // logging stuff
 pub const std_options: std.Options = if (builtin.mode == .ReleaseFast) .{
@@ -23,16 +23,16 @@ fn eolSeparator(comptime size: comptime_int) [size]u8 {
     return @splat('-');
 }
 
-fn getAllSnippetsPaths(gpa: std.mem.Allocator) !std.ArrayList([]const u8) {
+fn getAllSnippetsPaths(gpa: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
     var paths: std.ArrayList([]const u8) = .empty;
     errdefer paths.deinit(gpa);
 
-    var dir = try std.fs.cwd().openDir(SNIPPETS_DIR_NAME, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(io, SNIPPETS_DIR_NAME, .{ .iterate = true });
+    defer dir.close(io);
 
     var walker = try dir.walk(gpa);
     defer walker.deinit();
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
 
         // making sure we're dealing with a zig file!
@@ -67,7 +67,7 @@ inline fn assert(ok: bool, message: []const u8) void {
     }
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
 
     // 2? allocators
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -85,26 +85,28 @@ pub fn main() !void {
         _ = debug_allocator.deinit();
     };
 
-    var threaded: std.Io.Threaded = .init(gpa);
-    defer threaded.deinit();
-    const io = threaded.io();
+    const io = init.io;
 
     std.log.info("starting ZNIPPETS {s}", .{eolSeparator(80 - 18)});
 
     // 0. Testing that zigup exists -------------------------------------------
     std.log.debug("0. Testing zigup {s}", .{eolSeparator(80 - 17)});
-    var zigup_existence_proc = std.process.Child.init(
-        &.{ "sh", "-c", "command -v zigup" },
-        gpa,
-    );
-    zigup_existence_proc.stdout_behavior = .Ignore;
-    const zigup_test_existence_res = zigup_existence_proc.spawnAndWait() catch |err| {
+    var zigup_existence_proc = std.process.spawn(io, .{
+        .argv = &.{ "sh", "-c", "echo $PATH; command -v zigup" },
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch |err| {
         std.log.err("{}", .{err});
-        @panic("Checking the existence of zigup failed");
+        @panic("Checking the existence of zigup failed (0)");
     };
-    if (zigup_test_existence_res.Exited == 0) {
+    const zigup_test_existence_res = zigup_existence_proc.wait(io) catch |err| {
+        std.log.err("{}", .{err});
+        @panic("Checking the existence of zigup failed (1)");
+    };
+    if (zigup_test_existence_res.exited == 0) {
         std.log.debug("0.1 zigup was found. Proceeding...", .{});
     } else {
+        std.log.debug("{}", .{zigup_test_existence_res});
         std.log.err(
             \\1.1 zigup was NOT found. \n
             \\    Install it or make sure it exists
@@ -199,7 +201,7 @@ pub fn main() !void {
     std.log.debug("    {d} snippets found.", .{snippets_paths.items.len});
 
     std.log.debug("2.2.1 Searching for snippets inside {s} directory", .{SNIPPETS_DIR_NAME});
-    var snippets_paths_local = try getAllSnippetsPaths(gpa);
+    var snippets_paths_local = try getAllSnippetsPaths(gpa, io);
     std.log.debug("      {d} snippets found.", .{snippets_paths_local.items.len});
     // 2.1 unstable sort
     std.log.debug("2.2.2 Sorting paths by alpha order", .{});
@@ -266,11 +268,10 @@ pub fn main() !void {
     for (zig_versions.items, 0..) |version_name, version_idx| {
         std.log.debug("3.1.{d} Testing version {s}", .{ version_idx + 1, version_name });
 
-        var zigup_process = std.process.Child.init(&.{ "zigup", version_name }, gpa);
-        zigup_process.stderr_behavior = .Ignore;
-        const zigup_term = try zigup_process.spawnAndWait();
+        var zigup_process = try std.process.spawn(io, .{ .argv = &.{ "zigup", version_name }, .stdout = .ignore, .stderr = .ignore });
+        const zigup_term = try zigup_process.wait(io);
         switch (zigup_term) {
-            .Exited => |exit_code| {
+            .exited => |exit_code| {
                 if (exit_code != 0) {
                     std.log.err("Something went wrong with zigup (1)", .{});
                     continue;
@@ -292,17 +293,18 @@ pub fn main() !void {
             defer gpa.free(snip_path);
             try processes.append(
                 gpa,
-                std.process.Child.init(&.{ "zig", "test", snip_path }, gpa),
+                try std.process.spawn(io, .{
+                    .argv = &.{ "zig", "test", snip_path },
+                    .stderr = .ignore,
+                    .stdout = .ignore,
+                }),
             );
-            processes.items[proc_idx].stdout_behavior = .Ignore;
-            processes.items[proc_idx].stderr_behavior = .Ignore;
-            try processes.items[proc_idx].spawn();
         }
         for (processes.items, 0..) |*process, proc_idx| {
-            const term: std.process.Child.Term = try process.wait();
+            const term: std.process.Child.Term = try process.wait(io);
             var failed = true;
             switch (term) {
-                .Exited => |exit_code| {
+                .exited => |exit_code| {
                     if (exit_code == 0) {
                         tests_results.items[proc_idx + starting_idx] |= @as(u64, 1) << @intCast(version_idx);
                         failed = false;
@@ -353,9 +355,9 @@ pub fn main() !void {
     for (tests_results.items) |res| {
         std.log.debug("res: {d}", .{res});
     }
-    try DataStore.saveSnippetsAndResults(&snippets_paths, &tests_results);
+    try DataStore.saveSnippetsAndResults(io, &snippets_paths, &tests_results);
 
-    try DataStore.saveVersions(&zig_versions);
+    try DataStore.saveVersions(io, &zig_versions);
 
     // File generation --------------------------------------------------------
     std.log.debug("6. Jenna raiding html files for each snippets {s}", .{eolSeparator(80 - 46)});
@@ -376,17 +378,17 @@ pub fn main() !void {
     std.log.debug("6.2 Creating temporary output directory", .{});
     // first deleting it if it exists, probable cause:
     // previous execution failed, need to clean up the mess
-    try std.fs.cwd().deleteTree(TMP_OUT_DIR_NAME);
-    const tmp_out_dir = try std.fs.cwd().makeOpenPath(TMP_OUT_DIR_NAME, .{});
+    try std.Io.Dir.cwd().deleteTree(io, TMP_OUT_DIR_NAME);
+    const tmp_out_dir = try std.Io.Dir.cwd().createDirPathOpen(io, TMP_OUT_DIR_NAME, .{});
 
     for (snippets_paths.items, 0..) |path, snippet_idx| {
         // TODO: alright maybe be a bit careful here about the path names!
         // especially about sperators in the path...
         const new_filename = try html_filenames.allocPrintAppend(arena, "{s}.html", .{path[0 .. path.len - 4]});
-        const html_file = try tmp_out_dir.createFile(new_filename, .{});
-        defer html_file.close();
+        const html_file = try tmp_out_dir.createFile(io, new_filename, .{});
+        defer html_file.close(io);
         var out_buf: [4096]u8 = undefined;
-        var out_writer = html_file.writer(&out_buf);
+        var out_writer = html_file.writer(io, &out_buf);
 
         const res = tests_results.items[snippet_idx];
 
@@ -431,10 +433,10 @@ pub fn main() !void {
     const snippet_html_file_total_count = html_filenames.list.items.len;
     for (zig_versions.items, 0..) |version, version_idx| {
         const new_filename = try html_filenames.allocPrintAppend(arena, "v{s}.html", .{version});
-        const html_file = try tmp_out_dir.createFile(new_filename, .{});
-        defer html_file.close();
+        const html_file = try tmp_out_dir.createFile(io, new_filename, .{});
+        defer html_file.close(io);
         var out_buf: [4096]u8 = undefined;
-        var out_writer = html_file.writer(&out_buf);
+        var out_writer = html_file.writer(io, &out_buf);
 
         while (file_generation.streamUntilTemplateStr(&v_template_reader.interface, &out_writer.interface)) |template_str| {
             if (std.mem.eql(u8, "VERSION", template_str)) {
@@ -473,10 +475,10 @@ pub fn main() !void {
     var changes_idx: usize = 1;
     while (changes_idx < zig_versions.items.len) : (changes_idx += 1) {
         const filename = try html_filenames.allocPrintAppend(arena, "{s}_to_{s}.html", .{ zig_versions.items[changes_idx - 1], zig_versions.items[changes_idx] });
-        const changes_file = try tmp_out_dir.createFile(filename, .{});
-        defer changes_file.close();
+        const changes_file = try tmp_out_dir.createFile(io, filename, .{});
+        defer changes_file.close(io);
         var chg_buf: [4096]u8 = undefined;
-        var chg_writer = changes_file.writer(&chg_buf);
+        var chg_writer = changes_file.writer(io, &chg_buf);
 
         while (file_generation.streamUntilTemplateStr(&changes_template_reader.interface, &chg_writer.interface)) |template_str| {
             if (std.mem.eql(u8, "VERSION", template_str)) {
@@ -531,10 +533,10 @@ pub fn main() !void {
     // let's reuse the same buffer!
     var index_template_reader = index_template_file.reader(io, &template_buf);
 
-    const index_html = try tmp_out_dir.createFile("index.html", .{});
-    defer index_html.close();
+    const index_html = try tmp_out_dir.createFile(io, "index.html", .{});
+    defer index_html.close(io);
     var out_buf: [4096]u8 = undefined;
-    var out_writer = index_html.writer(&out_buf);
+    var out_writer = index_html.writer(io, &out_buf);
     const last_version_file = snippet_html_file_total_count + zig_versions.items.len;
     while (file_generation.streamUntilTemplateStr(&index_template_reader.interface, &out_writer.interface)) |template_str| {
         if (std.mem.eql(u8, "SNIPPETS", template_str)) {
@@ -564,23 +566,40 @@ pub fn main() !void {
 
     std.log.debug("10. Publishing web pages {s}", .{eolSeparator(80 - 26)});
     std.log.debug("10.1 Delete docs/", .{});
-    try std.fs.cwd().deleteTree("docs");
+    try std.Io.Dir.cwd().deleteTree(io, "docs");
     std.log.debug("10.2 Rename tmp-out to docs/", .{});
-    try std.fs.cwd().rename("tmp-out", "docs");
+    try std.Io.Dir.cwd().rename("tmp-out", std.Io.Dir.cwd(), "docs", io);
     std.log.debug("10.3 Copy style.css", .{});
-    try std.fs.Dir.copyFile(std.fs.cwd(), "html-templates/style.css", std.fs.cwd(), "docs/style.css", .{});
+    try std.Io.Dir.copyFile(std.Io.Dir.cwd(), "html-templates/style.css", std.Io.Dir.cwd(), "docs/style.css", io, .{});
 
     std.log.debug("11. Minify html files {s}", .{eolSeparator(80 - 21)});
-    file_generation.minifyGeneratedFiles(gpa, "docs/");
+    file_generation.minifyGeneratedFiles(gpa, io, "docs/");
+
+    // need to go back to some older zig version, otherwise, we will not be able
+    // to remove the master, since it will be marked as the default version
+    // !ALSO make sure there's no "master" symlink when running this!
+    var zigup_before_clean = try std.process.spawn(io, .{ .argv = &.{ "zigup", "0.16.0" }, .stdout = .ignore, .stderr = .ignore });
+    const zigup_before_clean_term = try zigup_before_clean.wait(io);
+    switch (zigup_before_clean_term) {
+        .exited => |exit_code| {
+            if (exit_code != 0) {
+                std.log.err("Something went wrong with zigup (3)", .{});
+            }
+        },
+        else => std.log.err("Something went wrong with zigup (4)", .{}),
+    }
 
     // deleting previous installed master version to minimize storage
     if (previousMaster) |prevMaster| {
         std.log.debug("12. deleting previous master {s}", .{eolSeparator(80 - 29)});
-        var zigup_process = std.process.Child.init(&.{ "zigup", "clean", prevMaster }, gpa);
-        zigup_process.stderr_behavior = .Ignore;
-        const zigup_term = try zigup_process.spawnAndWait();
+        var zigup_process = try std.process.spawn(io, .{
+            .argv = &.{ "zigup", "clean", prevMaster },
+            .stderr = .ignore,
+            .stdout = .ignore,
+        });
+        const zigup_term = try zigup_process.wait(io);
         switch (zigup_term) {
-            .Exited => |exit_code| {
+            .exited => |exit_code| {
                 if (exit_code != 0) {
                     std.log.err("Something went wrong with zigup clean", .{});
                 }
@@ -591,7 +610,7 @@ pub fn main() !void {
 
     std.log.debug("13. commit and push {s}", .{eolSeparator(80 - 20)});
     if (!is_debug) {
-        gitCommitPush(gpa);
+        gitCommitPush(io);
     }
 
     return;
@@ -642,17 +661,19 @@ fn sortPathAndResBecauseImStupidAndMultiArraylistWouldProbablyBeBetterButIjustWa
     std.sort.pdqContext(0, res.items.len, ctx);
 }
 
-fn gitCommitPush(gpa: std.mem.Allocator) void {
-    var git_proc = std.process.Child.init(
-        &.{ "sh", "-c", "git add SNIPPETS VERSIONS docs/ && git commit -m 'automatic push' && git push" },
-        gpa,
-    );
-    // git_proc.stdout_behavior = .Ignore;
-    const git_res = git_proc.spawnAndWait() catch |err| {
-        std.log.err("git commit and push failed: {}", .{err});
+fn gitCommitPush(io: std.Io) void {
+    var git_proc = std.process.spawn(io, .{
+        .argv = &.{ "sh", "-c", "git add SNIPPETS VERSIONS docs/ && git commit -m 'automatic push' && git push" },
+    }) catch |err| {
+        std.log.err("(0) git commit and push failed: {}", .{err});
         return;
     };
-    if (git_res.Exited != 0) {
-        std.log.err("git commit & push failed with exit code: {d}", .{git_res.Exited});
+    // git_proc.stdout_behavior = .Ignore;
+    const git_res = git_proc.wait(io) catch |err| {
+        std.log.err("(1) git commit and push failed: {}", .{err});
+        return;
+    };
+    if (git_res.exited != 0) {
+        std.log.err("git commit & push failed with exit code: {d}", .{git_res.exited});
     }
 }

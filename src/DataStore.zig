@@ -30,13 +30,13 @@ pub fn getVersions(arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const 
     return versions;
 }
 
-pub fn saveVersions(versions: *std.ArrayList([]const u8)) !void {
-    const file = try std.fs.cwd().createFile(VERSIONS_FILENAME, .{
+pub fn saveVersions(io: std.Io, versions: *std.ArrayList([]const u8)) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, VERSIONS_FILENAME, .{
         .truncate = true,
     });
-    defer file.close();
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
-    var writer = file.writer(&buf);
+    var writer = file.writer(io, &buf);
     for (versions.items) |version| {
         try writer.interface.print("{s}\n", .{version});
     }
@@ -79,13 +79,13 @@ pub fn getSnippets(arena: std.mem.Allocator, io: std.Io) !struct { std.ArrayList
 
 /// Save snippets and corresponding results in SNIPPETS file.
 /// snippets MUST be sorted! (maybe can do it here instead)
-pub fn saveSnippetsAndResults(snippets: *std.ArrayList([]const u8), results: *std.ArrayList(u64)) !void {
-    const file = try std.fs.cwd().createFile(SNIPPETS_INFO_FILENAME, .{
+pub fn saveSnippetsAndResults(io: std.Io, snippets: *std.ArrayList([]const u8), results: *std.ArrayList(u64)) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, SNIPPETS_INFO_FILENAME, .{
         .truncate = true,
     });
-    defer file.close();
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
-    var writer = file.writer(&buf);
+    var writer = file.writer(io, &buf);
     for (snippets.items, results.items) |snip, res| {
         try writer.interface.print("{s},{d}\n", .{ snip, res });
     }

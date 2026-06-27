@@ -2,3 +2,4 @@
 zig-out/
 experiments/
 *.o
+znippets

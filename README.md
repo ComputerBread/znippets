@@ -228,9 +228,23 @@ The rest of the code is under the [MIT License](https://github.com/ComputerBread
 truth is I don't really care, but if you make money with it somehow, don't be a
 rat, [give some back](https://www.youtube.com/watch?v=GIa_3TBP2_o)
 
-## Automatic "build"
+## Daily execution
 
-I set up a VPS to build and run this script every day.
+Previously, I had a script that would `git pull` and then `zig build run -Doptimize=ReleaseFast`. (automatic "build).
+But it's really slow, and because I rarely (never) modify the code, may as well,
+just compile it once, and run it!
+If I need to recompile it after some modification, I will:
+
+1. ssh into server
+2. git pull
+3. `zig build run -Doptimize=ReleaseFast`
+4. delete old exe `rm znippets`
+4. `mv zig-out/bin/znippets .` (put it at the root (./snippets/))
+
+and that's it!
+
+
+I set up a VPS to run this script every day.
 Really basic set up:
 
 - create a user using `adduser znippets`

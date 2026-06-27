@@ -16,7 +16,7 @@ pub fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: st
     var res_body = std.Io.Writer.Allocating.init(gpa);
     defer res_body.deinit();
 
-    var response = try http_client.fetch(.{
+    const response = try http_client.fetch(.{
         .method = .GET,
         .location = .{ .url = "https://ziglang.org/download/index.json" },
         .response_writer = &res_body.writer,
@@ -56,7 +56,7 @@ pub fn fetchZigVersions(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: st
     return versions;
 }
 
-const yup = [_][]const u8{ "0.16.0-dev.1484+d0ba6642b", "0.15.2", "0.15.1", "0.14.1", "0.14.0", "0.13.0", "0.12.1", "0.12.0", "0.11.0", "0.10.1", "0.10.0", "0.9.1", "0.9.0", "0.8.1", "0.8.0", "0.7.1", "0.7.0", "0.6.0", "0.5.0", "0.4.0", "0.3.0", "0.2.0", "0.1.1" };
+const yup = [_][]const u8{ "0.17.0-dev.956+2dca73595", "0.16.0", "0.15.1", "0.14.1", "0.14.0", "0.13.0", "0.12.1", "0.12.0", "0.11.0", "0.10.1", "0.10.0", "0.9.1", "0.9.0", "0.8.1", "0.8.0", "0.7.1", "0.7.0", "0.6.0", "0.5.0", "0.4.0", "0.3.0", "0.2.0", "0.1.1" };
 
 pub fn fetchZigVersionsStub(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io) !std.ArrayList([]const u8) {
     _ = gpa;
