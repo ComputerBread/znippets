@@ -9,7 +9,7 @@ const file_generation = @import("file_generation.zig");
 
 // logging stuff
 pub const std_options: std.Options = if (builtin.mode == .ReleaseFast) .{
-    .log_scope_levels = &.{.{ .scope = .default, .level = .info }},
+    .log_scope_levels = &.{.{ .scope = .default, .level = .debug }},
 } else .{};
 
 // we are not going to test all versions of zig, so let's define the oldest one
@@ -315,9 +315,10 @@ pub fn main(init: std.process.Init) !void {
                         tests_results.items[proc_idx + starting_idx] &= ~(@as(u64, 1) << @intCast(version_idx));
                     }
                 },
-                else => {
+                else => |val, tag| {
                     // idk what happens here
-                    std.log.err("Unexpected behavior: Term was not .Exited ", .{});
+                    std.log.err("Unexpected behavior: Term was not .exited, val: {}, tag: {} ", .{ val, tag });
+                    std.log.debug("triggered by: {s}", .{snippets_paths.items[proc_idx]});
                 },
             }
         }
@@ -594,8 +595,8 @@ pub fn main(init: std.process.Init) !void {
         std.log.debug("12. deleting previous master {s}", .{eolSeparator(80 - 29)});
         var zigup_process = try std.process.spawn(io, .{
             .argv = &.{ "zigup", "clean", prevMaster },
-            .stderr = .ignore,
-            .stdout = .ignore,
+            .stderr = .inherit,
+            .stdout = .inherit,
         });
         const zigup_term = try zigup_process.wait(io);
         switch (zigup_term) {
